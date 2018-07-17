@@ -159,8 +159,8 @@ tran 0.1n 500n
 plot v(In)
 plot v(x11.T4) - v(X11.T5)
 *
-* T4,T5 should see volts, but currently see mV: our XT1 is shorting out the
-* input stage?
+*
+* This looks like spikes of hundreds of volts after 200ns or so
 *
 plot v(x11.BASE_Q3) - v(X11.EM_Q3)
 plot v(T_2) - v(T_1)
