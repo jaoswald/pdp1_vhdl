@@ -1,0 +1,168 @@
+DEC 1607 Pulse Amplifier two-stage
+*
+* Simulate second transformer as a simple inductor.
+* Based on simluation of first stage with inductor, T1 primary looks like
+* about 50 uH + 100 ohms maybe? It is loaded by impedance looking into Q3
+* base (small?)
+*
+*
+.MODEL PNP PNP Is=1.35492E-15 Bf=119.7473666 Tf=2.03804E-10
+*
+* Diode bias network
+* Fed 15V through a load resistor at terminal 1, will supply a voltage roughly
+* -3V.
+* "D-662"==1N645
+.MODEL D1N645 D( IS=2.51E-10 RS=0.532 N=1.4828 TT=3.23E-06 )
+.SUBCKT DiodeSeries DBIAS
+D16 0 1 D1N645
+D17 1 2 D1N645
+D18 2 3 D1N645
+D19 3 DBIAS D1N645
+C10 0 DBIAS 0.01uF
+.ENDS
+*
+* DC Bias Sources
+V3 V15 0 DC -15V
+*
+*
+* Load from other circuits
+XDIODES DBIAS DiodeSeries
+R99 DBIAS V15 150
+C11 V15 0 0.01uF
+*
+* Default diode D-664 = 1N914
+.MODEL D1N914 D
+*
+* Two-winding transformer model, based on
+* https://qucs-help.readthedocs.io/en/spice4qucs/SPICEComp.html
+* https://qucs-help.readthedocs.io/en/spice4qucs/_images/TranFig73.png
+*
+* Lmo = inductance of primary measured with secondary open
+* Lmf = inductanct of primary measured with secondary shorted
+* Np = turns primary, Ns = turns secondary
+* Rp = primary resistance, Rs secondary resistance
+*
+* K = coupling factor
+*
+*  Pplus --L=Lpf--(dot)      (dot)-- L=Lsf -- Splus
+*                 L1=Lp      L2=Ls
+*                   |     K    |
+*  Pneg  --R=Rp ----            --  R = Rs  --  Sneg
+*
+.SUBCKT LossyTransformer Pplus Pneg Splus Sneg
++ Lmo=200uH Lmf=2uH Np=10 Ns=10 Rp=0.1 Rs=0.1
+.PARAM K={sqrt(1-Lmf/Lmo)}
+.PARAM Lp={K*Lmo}
+.PARAM N={Np/Ns}
+.PARAM Ls={K*Lmo*(1/(N*N))}
+.PARAM Lpf={(1-K)*Lmo}
+.PARAM Lsf={(1-K)*Lmo*(1/(N*N))}
+R2 Sneg node4 Rs
+L1 node1 node2 Lp
+L2 node3 node4 Ls
+L3 node1 Pplus Lpf
+R1 node2 Pneg Rp
+L4 node3 Splus Lsf
+K1 L1 L2 K
+.ENDS LossyTransformer
+* T2003 transformer
+*
+*     1  3 DOT
+*      ||
+* DOT 2  4
+*
+.SUBCKT T2003 1 2 3 4
+X1 2 1 3 4 LossyTransformer Rp=1 Rs=1
+.ENDS T2003
+*
+* T2048 Transformer
+* 
+* DOT 4  7 DOT
+*      ||
+*     5  2
+*
+.SUBCKT T2048 4 5 7 2
+*
+* 10,10,200uH,10uH: -7.5V pulses, a big one with lots of trailing
+* 10,10,200uH, 50uH: -7.5V downward rectangle 150ns, a couple small rectangular
+*                          following pulses
+* 10,10,200uH,75uH:
+* 10,10,200uH,100uH: still about the same?
+* 10,10,200uH,150uH: just following pulses, no main pulse
+X1 4 5 7 2 LossyTransformer Rp=5 Rs=5 Lmo=200uH Lmf=120uH
+.ENDS T2048
+*
+* First stage pulse amplifier subcircuit: intention is that the output
+* of this feed the T1 T2048 transformer.
+*
+* InputTerminal Pin4 Pin5 on transformer primary (dot on Pin4)
+* DCBias applied to DBias (terminal of D19),
+* node DCR11 exposed for DC bias of T2 (node between R11, R16)
+* V15 is -15V terminal
+*
+.SUBCKT InputStage In T_4 T_5 DBias DCR11 V15
+Q2 T_4 BASE_Q2 In PNP
+R3 In V15 7500
+D1 BASE_Q2 In D1N914
+D2 DBias BASE_Q2 
+R4 BASE_Q2 V15 6800
+C2 T_5 0 27pF
+R5 T_5 R5_1 270
+D3 R5_1 T_4 D1N914
+R6 5 V15 2200
+R11 DCR11 V15 220
+R16 DBias DCR11 150
+D4 DCR11 5 D1N914
+R6 5 V15 2200
+R11 DCR11 V15 220
+R16 DBias DCR11 150
+D4 DCR11 5 D1N914
+.ENDS InputStage
+
+* Pulse Amplifier subcircuit
+* Terminal 1 is the emitter input of Q2
+* Terminals COLL_Q3/2  connect to the primary of T2 (dot on 2)
+* Terminal 4 is the clamp diode supply
+* Terminal 5 is -15V supply
+*
+.SUBCKT PULSEAMP 1 COLL_Q3 2 4 5
+
+* Qx coll base emitter
+Q3 COLL_Q3 BASE_Q3 EM_Q3 PNP
+R8 EM_Q3 0 10
+
+X1 1 T4 T5 4 2 5 InputStage
+XT1 T4 T5 0 BASE_Q3 T2048
+C4 2 0 0.001uF
+R7 2 R7_1 330
+D5 R7_1 COLL_Q3 D1N914
+.ENDS PULSEAMP
+*
+*
+* Resistive+Inductive load seen in T2 primary
+*
+R100 R_100 T_1 10
+L2 R_100 T_2 500uH
+*
+X11 In T_1 T_2 DBIAS V15 PULSEAMP
+
+* LJK
+* X12 12 10 11 DBIAS 3 PULSEAMP
+* PMN
+* X13 16 13 14 DBIAS 3 PULSEAMP
+
+V101 In 0 PULSE(0 -3 0 10n 10n 30n)
+
+.OP
+.CONTROL
+tran 0.1n 500n
+plot v(In)
+plot v(x11.T4) - v(X11.T5)
+*
+* T4,T5 should see volts, but currently see mV: our XT1 is shorting out the
+* input stage?
+*
+plot v(x11.BASE_Q3) - v(X11.EM_Q3)
+plot v(T_2) - v(T_1)
+.endc
+.end
